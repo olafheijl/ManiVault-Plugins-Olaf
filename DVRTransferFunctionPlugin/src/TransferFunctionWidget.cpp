@@ -71,7 +71,6 @@ TransferFunctionWidget::TransferFunctionWidget(mv::plugin::ViewPlugin* parentPlu
 
     connect(&_pixelSelectionTool, &PixelSelectionTool::shapeChanged, [this]() {
         if (isInitialized())
-            qDebug() << "Does it count as shape change";
             update();
     });
 
@@ -444,7 +443,6 @@ void TransferFunctionWidget::resizeGL(int w, int h)
     _widgetSizeInfo.ratioHeight = _widgetSizeInfo.height / _widgetSizeInfo.minWH;
 
 	_boundsPointsWindow = QRect((w - _widgetSizeInfo.minWH) / 2.0, (h - _widgetSizeInfo.minWH) / 2.0, _widgetSizeInfo.minWH, _widgetSizeInfo.minWH);
-	qDebug() << "Bounds of the points in the window: " << _boundsPointsWindow;
 
     // Update the bounds for all interactive shapes
     for (auto& shape : _interactiveShapes) {

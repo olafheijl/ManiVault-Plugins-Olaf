@@ -13,6 +13,7 @@ project("DVRViewPlugin")
 # -----------------------------------------------------------------------------
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
+set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOMOC ON)
 
 if(MSVC)
@@ -26,7 +27,7 @@ endif(MSVC)
 # Dependencies
 # -----------------------------------------------------------------------------
 find_package(Qt6 COMPONENTS Widgets WebEngineWidgets OpenGL OpenGLWidgets REQUIRED)
-find_package(ManiVault COMPONENTS Core PointData ImageData VolumeData CONFIG QUIET)
+find_package(ManiVault COMPONENTS Core PointData ImageData VolumeDataPlugin CONFIG QUIET)
 
 # --- OpenMP Support ---
 find_package(OpenMP REQUIRED)
