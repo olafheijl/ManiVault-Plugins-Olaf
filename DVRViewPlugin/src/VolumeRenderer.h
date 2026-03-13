@@ -21,6 +21,8 @@
 #include <PointData/PointData.h>
 #include "MCArrays.h"
 
+
+
 #include <hnswlib/hnswlib.h>
 #ifdef USE_FAISS
 #include <faiss/IndexIVFFlat.h>
@@ -72,7 +74,9 @@ enum RenderMode {
     Smooth_NN_MaterialTransition,
     Alt_NN_MaterialTransition,
     MaterialTransition_2D,
-    MaterialTransition_FULL
+    MaterialTransition_FULL,
+    HSNE_COMPOSITE_FULL_v1,
+    HSNE_COMPOSITE_2D_POS
 };
 
 class VolumeRenderer : protected QOpenGLFunctions_4_3_Core
@@ -111,6 +115,8 @@ public:
 
     void setDefaultRenderSettings();
 
+    void setHSNELandmarkIndices(const std::vector<unsigned int>& indices);
+
     void render();
     void destroy();
 
@@ -124,6 +130,8 @@ private:
 
     // Full data render mode methods
     void prepareANN();
+    void prepareANNHSNE();
+    void batchSearchHSNE(const std::vector<float>& queryData, std::vector<float>& positionData, uint32_t dimensions, int k, bool useWeightedMean, std::vector<float>& meanPositionData);
     void batchSearch(const std::vector<float>& queryData, std::vector<float>& positionData, uint32_t dimensions, int k, bool useWeightedMean, std::vector<float>& meanPositionData);
     void getFacesTextureData(std::vector<float>& frontfacesData, std::vector<float>& backfacesData);
     void getGPUFullDataModeBatches(std::vector<float>& frontfacesData, std::vector<float>& backfacesData);
@@ -133,6 +141,8 @@ private:
     void updateRenderModeParameters();
 
     void renderFullData();
+    void renderFullDataHSNE();
+    void renderHSNEComposite2DPos();
     void renderComposite2DPos();
     void renderCompositeColor();
     void render1DMip();
@@ -177,6 +187,7 @@ private:
     bool _useClutterRemover = false; // only works for a few render modes, such as the NNMaterialTransition renderMode
     bool _useShading = false;
     bool _ANNAlgorithmTrained = false; 
+    bool _ANNHSNEAlgorithmTrained = false;
 
     // (WIP) Originally this was used for empty space skipping, but it wasn't fully implemented and now this part is left in solly for the purpose having the camera kind of work inside the volume
     int _renderCubeSize = 20;
@@ -218,10 +229,14 @@ private:
 
     TrackballCamera _camera;
     mv::Dataset<Volumes> _volumeDataset;
+    mv::Dataset<Volumes> _landmarkVolumeDataset;
     mv::Dataset<Images> _tfDataset;
     mv::Dataset<Points> _reducedPosDataset;
     mv::Dataset<Images> _materialTransitionDataset;
     mv::Dataset<Images> _materialPositionDataset;
+
+    std::vector<unsigned int> _landmarkIndices;
+    std::vector<unsigned int> _annIndexToVoxelIndex;
 
     QSize _adjustedScreenSize;
     mv::Vector3f _volumeSize = mv::Vector3f{50, 50, 50};

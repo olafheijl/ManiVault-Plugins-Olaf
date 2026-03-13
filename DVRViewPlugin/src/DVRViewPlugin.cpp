@@ -313,6 +313,17 @@ void DVRViewPlugin::loadTfData(const mv::Dataset<Images>& dataset)
 void DVRViewPlugin::loadReducedPosData(const mv::Dataset<Points>& dataset)
 {
     _reducedPosDataset = dataset;
+
+    if (_reducedPosDataset.isValid())
+    {
+        std::vector<unsigned int> landmarkIndices;
+        _reducedPosDataset->getGlobalIndices(landmarkIndices);
+
+        //qDebug() << "Number of HSNE landmarks: " << landmarkIndices.size();
+
+        _DVRWidget->setHSNELandmarkIndices(landmarkIndices);
+    }
+
     updateShowDropIndicator();
     updateReducedPosData();
 }

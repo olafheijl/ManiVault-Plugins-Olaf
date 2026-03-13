@@ -248,7 +248,8 @@ void VolumeRenderer::setData(const mv::Dataset<Volumes>& dataset)
 {
     _volumeDataset = dataset;
     _volumeSize = dataset->getVolumeSize().toVector3f();
-    _ANNAlgorithmTrained = false; // We need to retrain the ANN algorithm as the data has changed
+    _ANNAlgorithmTrained = false; 
+    _ANNHSNEAlgorithmTrained = false;  // We need to retrain the ANN algorithm as the data has changed
     _fullDataMemorySize = _volumeSize.x * _volumeSize.y * _volumeSize.z * _volumeDataset->getComponentsPerVoxel() * sizeof(float); // in bytes
     if (_fullGPUMemorySize - _fullDataMemorySize < 0)
     {
@@ -260,7 +261,7 @@ void VolumeRenderer::setData(const mv::Dataset<Volumes>& dataset)
     updateRenderCubes();
 }
 
-void VolumeRenderer::setTfTexture(const mv::Dataset<Images>& tfTexture)
+void VolumeRenderer::setTfTexture(const mv::Dataset<Images>& tfTexture) 
 {
     _tfDataset = tfTexture;
     QSize textureDims = _tfDataset->getImageSize();
@@ -276,14 +277,14 @@ void VolumeRenderer::setTfTexture(const mv::Dataset<Images>& tfTexture)
     _tfTexture.release();
 
     // In these rendermodes the new dataset will impact the visualization and thus needs to be updated now 
-    if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_COLOR || _renderMode == RenderMode::NN_MULTIDIMENSIONAL_COMPOSITE || _renderMode == RenderMode::NN_MaterialTransition || _renderMode == RenderMode::Alt_NN_MaterialTransition || _renderMode == RenderMode::Smooth_NN_MaterialTransition)
+    if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_COLOR || _renderMode == RenderMode::NN_MULTIDIMENSIONAL_COMPOSITE || _renderMode == RenderMode::NN_MaterialTransition || _renderMode == RenderMode::Alt_NN_MaterialTransition || _renderMode == RenderMode::Smooth_NN_MaterialTransition || _renderMode == RenderMode::HSNE_COMPOSITE_FULL_v1)
         updataDataTexture();
 }
 
 void VolumeRenderer::setReducedPosData(const mv::Dataset<Points>& reducedPosData)
 {
     _reducedPosDataset = reducedPosData;
-    if (!_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL && !_renderMode == RenderMode::MaterialTransition_FULL && _renderMode != RenderMode::MIP) {
+    if (!_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL && !_renderMode == RenderMode::MaterialTransition_FULL && _renderMode != RenderMode::MIP && _renderMode != RenderMode::HSNE_COMPOSITE_FULL_v1) {
         updataDataTexture(); // The position data is used in the rendering process, so we need to update the data texture (apart from the MIP and full data render modes that either don't need it or define it elsewhere)
     }
 }
@@ -423,9 +424,8 @@ void VolumeRenderer::updataDataTexture()
 {
     QPair<float, float> scalarDataRange;
 
-
     if (_volumeDataset.isValid()) {
-        if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL || _renderMode == RenderMode::MaterialTransition_FULL) {
+        if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL || _renderMode == RenderMode::MaterialTransition_FULL || _renderMode == RenderMode::HSNE_COMPOSITE_FULL_v1) {
             int blockAmount = std::ceil(float(_compositeIndices.size()) / 4.0f) * 4; //Since we always assume textures with 4 dimensions all of which need to be filled
             _textureData = std::vector<float>(blockAmount * _volumeDataset->getNumberOfVoxels());
             _volumeTextureSize = _volumeDataset->getVolumeAtlasData(_compositeIndices, _textureData, scalarDataRange);
@@ -436,7 +436,7 @@ void VolumeRenderer::updataDataTexture()
             _volumeTexture.setData(_volumeTextureSize.x, _volumeTextureSize.y, _volumeTextureSize.z, _textureData, 4);
             _volumeTexture.release(); // Unbind the texture
         }
-        else if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS || _renderMode == RenderMode::MaterialTransition_2D) {
+        else if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS || _renderMode == RenderMode::MaterialTransition_2D || _renderMode == RenderMode::HSNE_COMPOSITE_2D_POS) {
             if (!_tfDataset.isValid() || !_reducedPosDataset.isValid()) { // _tfTexture is used in the normalize function
                 qCritical() << "No position data set";
                 return;
@@ -562,12 +562,16 @@ void VolumeRenderer::setRenderMode(const QString& renderMode)
         givenMode = RenderMode::NN_MULTIDIMENSIONAL_COMPOSITE;
     else if (renderMode == "1D MIP")
         givenMode = RenderMode::MIP;
+    else if (renderMode == "HSNE Composite Full v1")
+        givenMode = RenderMode::HSNE_COMPOSITE_FULL_v1;
+    else if (renderMode == "HSNE Composite 2D Pos")
+        givenMode = RenderMode::HSNE_COMPOSITE_2D_POS;
     else
         qCritical() << "Unknown render mode";
 
     // Group render modes by needed volume texture requirements
     auto getRenderModeGroup = [](RenderMode mode) {
-        if (mode == RenderMode::MaterialTransition_FULL || mode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL)
+        if (mode == RenderMode::MaterialTransition_FULL || mode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL || mode == RenderMode::HSNE_COMPOSITE_FULL_v1)
             return 1;
         if (mode == RenderMode::MaterialTransition_2D)
             return 2;
@@ -736,6 +740,117 @@ void VolumeRenderer::renderDirections()
     _framebuffer.release();
 }
 
+void VolumeRenderer::prepareANNHSNE()
+{
+    if (!_volumeDataset.isValid()) {
+        qCritical() << "Volume dataset is not valid. Cannot prepare ANN HSNE.";
+        return;
+    }
+
+    if (_landmarkIndices.empty()) {
+        qCritical() << "No HSNE landmarks available";
+        return;
+    }
+
+    qDebug() << "Starting loading ANN HSNE";
+    auto start = std::chrono::high_resolution_clock::now();
+
+    // Load full voxel data
+    uint32_t numVoxels = _volumeDataset->getNumberOfVoxels();
+    uint32_t dimensions = _volumeDataset->getComponentsPerVoxel();
+
+    std::vector<float> voxelData(dimensions * numVoxels);
+    QPair<float, float> scalarDataRange;
+    _volumeDataset->getVolumeData(_compositeIndices, voxelData, scalarDataRange);
+
+    uint32_t numLandmarks = static_cast<uint32_t>(_landmarkIndices.size());
+
+    qDebug() << "Total voxels:" << numVoxels;
+    qDebug() << "HSNE landmarks:" << numLandmarks;
+    qDebug() << "Feature dimensions:" << dimensions;
+
+    // Extract landmark feature vectors
+    std::vector<float> landmarkData(numLandmarks * dimensions);
+    _annIndexToVoxelIndex.resize(numLandmarks);
+
+    for (uint32_t i = 0; i < numLandmarks; i++) {
+        uint32_t voxelIdx = _landmarkIndices[i];
+
+        const float* src = voxelData.data() + voxelIdx * dimensions;
+        float* dst = landmarkData.data() + i * dimensions;
+        std::memcpy(dst, src, sizeof(float) * dimensions);
+
+        _annIndexToVoxelIndex[i] = voxelIdx;
+    }
+
+#ifdef USE_FAISS
+    if (_useFaissANN) {
+        _nlist = std::clamp(static_cast<int>(numLandmarks / 50), 16, 1024); // nlist is the number of clusters in Faiss
+        //_nprobe = std::clamp(static_cast<int>(numVoxels / 1000000), 1, 64); // nprobe is the number of clusters to search in Faiss
+
+        // IVF index for large datasets
+        _faissIndexFlat = std::make_unique<faiss::IndexFlatL2>(dimensions);
+        _faissIndexIVF = std::make_unique<faiss::IndexIVFFlat>(_faissIndexFlat.get(), dimensions, _nlist, faiss::METRIC_L2);
+        _faissIndexIVF->train(numLandmarks, landmarkData.data());
+        _faissIndexIVF->add(numLandmarks, landmarkData.data());
+
+        //_faissIndexIVF->nprobe = _nprobe; // Set the number of clusters to search
+        qDebug() << "FAIS HSNE index built";
+    }
+    else
+#endif  
+    {
+        // Build a filename referencing key parameters
+        qDebug() << "Building HNSW HSNE index";
+
+        std::ostringstream oss;
+        oss << _hnswIndexFolder << "hnsw_hsne_index"
+            << "_M" << _hnswM
+            << "_efC" << _hnswEfConstruction
+            << "_dim" << dimensions
+            << "_voxNum" << numLandmarks
+            << ".bin";
+        std::string indexPath = oss.str();
+
+        // Initialize HNSW space
+        _hnswSpace = std::make_unique<hnswlib::L2Space>(dimensions);
+
+        if (std::filesystem::exists(indexPath)) {
+            // Load existing index
+            _hnswIndex = std::make_unique<hnswlib::HierarchicalNSW<float>>(_hnswSpace.get(), indexPath);
+            _hnswIndex->setEf(_hwnsEfSearch);
+            qDebug() << "Loaded HNSW HSNE index from:" << QString::fromStdString(indexPath);
+        }
+        else {
+            // Train and save new index
+            _hnswIndex = std::make_unique<hnswlib::HierarchicalNSW<float>>(
+                _hnswSpace.get(),
+                numLandmarks,
+                _hnswM,
+                _hnswEfConstruction
+            );
+            for (uint32_t i = 0; i < numLandmarks; ++i) {
+                _hnswIndex->addPoint(landmarkData.data() + i * dimensions, i);
+            }
+            _hnswIndex->setEf(_hwnsEfSearch);
+
+            try {
+                _hnswIndex->saveIndex(indexPath);
+                qDebug() << "HNSW HSNE index saved to:" << QString::fromStdString(indexPath);
+            }
+            catch (const std::exception& e) {
+                qCritical() << "Failed to save HNSW HSNE index:" << e.what();
+            }
+        }
+    }
+
+    qDebug() << "HSNW HSNE ANN ready";
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    qDebug() << "ANN preparation took:" << duration.count() << "ms";
+}
+
 
 void VolumeRenderer::prepareANN()
 {
@@ -743,6 +858,9 @@ void VolumeRenderer::prepareANN()
         qCritical() << "Volume dataset is not valid. Cannot prepare ANN.";
         return;
     }
+
+    qDebug() << "Starting loading ANN";
+    auto start = std::chrono::high_resolution_clock::now();
 
     uint32_t numVoxels = _volumeDataset->getNumberOfVoxels();
     uint32_t dimensions = _volumeDataset->getComponentsPerVoxel();
@@ -809,9 +927,88 @@ void VolumeRenderer::prepareANN()
                 }
             }
         }
+    qDebug() << "HSNW ANN ready";
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    qDebug() << "ANN preparation took:" << duration.count() << "ms";
 }
 
 
+
+// Method that handles large query batches using hsnswlib faster then calling searchKnn for each query in a for loop by making use of parallelization 
+// It also handles the weighted mean calculation for the query results
+// And it outputs the results into a vector of floats
+void VolumeRenderer::batchSearchHSNE(
+    const std::vector<float>& queryData,    // Flat vector: each query is (dimensions) floats
+    std::vector<float>& positionData,       // The 2D positions for the queries
+    uint32_t dimensions,                    // Dimensionality of a single query
+    int k,                                  // Number of nearest neighbors to retrieve
+    bool useWeightedMean,                   // Use weighted mean for the query
+    std::vector<float>& meanPositionData   // Output: The mean position data for the queries
+) {
+    if (queryData.size() % dimensions != 0) {
+        qCritical() << "Query data size is not a multiple of dimensions.";
+    }
+
+    int64_t numQueries = static_cast<int64_t>(queryData.size() / dimensions);
+#ifdef USE_FAISS
+    if (_useFaissANN) {
+        if (!_faissIndexIVF->is_trained) {
+            qCritical() << "Faiss IVF index is not trained!";
+            return;
+        }
+
+        std::vector<faiss::idx_t> labels(numQueries * k);
+        std::vector<float> distances(numQueries * k);
+
+        qDebug() << "Searching for" << k << "nearest neighbors for" << numQueries << "queries using Faiss IVF index.";
+        _faissIndexIVF->search(numQueries, queryData.data(), k, distances.data(), labels.data());
+        qDebug() << "Faiss IVF search completed.";
+
+        for (int64_t i = 0; i < numQueries; i++) {
+            std::vector<std::pair<float, int64_t>> answers;
+            for (int j = 0; j < k; j++) {
+                int64_t landmarkIndex = labels[i * k + j];
+
+                answers.emplace_back(distances[i * k + j], landmarkIndex);
+            }
+            // Compute the mean position of the nearest neighbors.
+            QVector2D meanPos = ComputeMeanOfNN(answers, k, positionData);
+            // Store the mean position in the output vector.
+            meanPositionData[i * 2] = meanPos.x();
+            meanPositionData[i * 2 + 1] = meanPos.y();
+        }
+    }
+    else
+#endif // USE_FAISS
+    {
+        // Check that the index is valid.
+        if (!_hnswIndex) {
+            qCritical() << "HNSW index is not initialized.";
+        }
+
+#pragma omp parallel for schedule(guided)
+        for (int64_t i = 0; i < numQueries; i++) { // it is important to use int64_t here to avoid overflow crashes
+            // Find pointer to the start of the i-th query.
+            const float* query = queryData.data() + static_cast<int64_t>(i * dimensions);
+            std::priority_queue<std::pair<float, hnswlib::labeltype>> resultQueue = _hnswIndex->searchKnn(query, k);
+
+            // Convert the priority queue to a vector.
+            std::vector<std::pair<float, int64_t>> answers;
+            while (!resultQueue.empty()) {
+                int64_t landmarkIndex = static_cast<int64_t>(resultQueue.top().second);
+                answers.push_back({ resultQueue.top().first, landmarkIndex });
+                resultQueue.pop();
+            }
+            QVector2D meanPos = ComputeMeanOfNN(answers, k, positionData);
+
+            meanPositionData[i * 2] = meanPos.x();
+            meanPositionData[i * 2 + 1] = meanPos.y();
+
+        }
+    }
+}
 
 // Method that handles large query batches using hsnswlib faster then calling searchKnn for each query in a for loop by making use of parallelization 
 // It also handles the weighted mean calculation for the query results
@@ -1480,6 +1677,80 @@ void VolumeRenderer::updateRenderModeParameters()
         // Load the material position dataset into the texture.
         loadNNVolumeToTexture(_tempNNMaterialVolume, _textureData, _materialPositionImage, _materialPositionDataset->getImageSize().width(), _volumeSize, _volumeDataset->getNumberOfVoxels(), true);
     }
+
+}
+
+void VolumeRenderer::renderHSNEComposite2DPos()
+{
+    // TODO
+}
+
+void VolumeRenderer::renderFullDataHSNE()
+{
+    // Check available GPU memory for the batch transfer.
+    size_t availableMemoryInBytes = _fullGPUMemorySize - _fullDataMemorySize - 100000; // Reserve ~100MB for other data.
+    if (availableMemoryInBytes < 0) {
+        qCritical() << "Not enough GPU memory available for the GPU-CPU batch transfer.";
+        return;
+    }
+
+    // Make sure the ANN (e.g. hnswlib) is prepared for the dataset.
+    if (!_ANNHSNEAlgorithmTrained) {
+        prepareANNHSNE();                                                          //  CPU - all voxels used here
+        _ANNHSNEAlgorithmTrained = true;
+        qDebug() << "ANN algorithm trained for full data mode.";
+    }
+
+    // Initialize the GPU full data mode parameters if not already done.
+    if (_fullDataModeBatch == -1) {
+        qDebug() << "Available GPU memory for batch transfer:" << availableMemoryInBytes / (1024 * 1024) << "MB";
+        qDebug() << "Rendering composite full data...";
+
+        updateRenderModeParameters();                                          // CPU - Not all voxels used here
+        _fullDataModeBatch = 0;
+    }
+
+    std::vector<float> cpuOutput;
+
+    retrieveBatchFullData(cpuOutput, _fullDataModeBatch, true);                                //GPU
+
+    // Retrieve the reduced 2D position data (e.g. from a dimension reduction dataset), they are needed for following computation ---
+    int numLandmarks = _landmarkIndices.size() * 2; // two floats per voxel.
+    std::vector<float> landmarkPositionData(numLandmarks);
+    _reducedPosDataset->populateDataForDimensions(landmarkPositionData, std::vector<int>{0, 1});
+    normalizePositionData(landmarkPositionData);
+
+    // Run approximate nearest-neighbour search on the retrieved CPU data.
+    uint32_t sampleDim = _volumeDataset->getComponentsPerVoxel();
+    int64_t numQueries = static_cast<int64_t>(cpuOutput.size() / sampleDim);
+    std::vector<float> meanPositions(numQueries * 2);
+
+    int k = 1; // Number of nearest neighbours to consider for the mean position computation.
+    if (_useShading) { // I just use the same button since it is not used anyway
+        k = 9;
+    }
+    bool useWeightedMean = true;  // change to "true" if you need weighting.
+    qDebug() << "start batchsearch HSNE";
+    batchSearchHSNE(cpuOutput, landmarkPositionData, sampleDim, k, useWeightedMean, meanPositions);         // CPU and put in meanPosition - Have to change positionData to only have landmarks
+
+    qDebug() << "finish batchsearch HSNE";
+    cpuOutput.clear();  // Free memory immediately.
+    qDebug() << "Approximate lower dimensional positions estimated" << _fullDataModeBatch;
+
+    // Composite this batch’s result over the previous composite and update the texture.
+    renderBatchToScreen(_fullDataModeBatch, sampleDim, meanPositions);                         // GPU render to screen texture
+    qDebug() << "Rendered batch" << _fullDataModeBatch << "to composite texture.";
+    if (_fullDataModeBatch == _GPUBatches.size() - 1) {
+        _fullDataModeBatch = -1;
+
+        // clean up the temporary texture used for the material volume.
+        _tempNNMaterialVolume.destroy();
+        qDebug() << "Composite full rendering completed.";
+    }
+    else {
+        _fullDataModeBatch++;
+    }
+
 }
 
 void VolumeRenderer::renderFullData()
@@ -1493,8 +1764,8 @@ void VolumeRenderer::renderFullData()
 
     // Make sure the ANN (e.g. hnswlib) is prepared for the dataset.
     if (!_ANNAlgorithmTrained) {
-        prepareANN();
-        _ANNAlgorithmTrained = true;
+        prepareANN();                                                           //  CPU - all voxels used here
+        _ANNAlgorithmTrained = true;                                            
         qDebug() << "ANN algorithm trained for full data mode.";
     }
 
@@ -1503,13 +1774,13 @@ void VolumeRenderer::renderFullData()
         qDebug() << "Available GPU memory for batch transfer:" << availableMemoryInBytes / (1024 * 1024) << "MB";
         qDebug() << "Rendering composite full data...";
 
-        updateRenderModeParameters();
+        updateRenderModeParameters();                                           // CPU - Not all voxels used here
         _fullDataModeBatch = 0;
     }
 
     std::vector<float> cpuOutput;
 
-    retrieveBatchFullData(cpuOutput, _fullDataModeBatch, true);
+    retrieveBatchFullData(cpuOutput, _fullDataModeBatch, true);                                 //GPU
 
     // Retrieve the reduced 2D position data (e.g. from a dimension reduction dataset), they are needed for following computation ---
     int pointAmount = _volumeDataset->getNumberOfVoxels() * 2; // two floats per voxel.
@@ -1527,13 +1798,13 @@ void VolumeRenderer::renderFullData()
         k = 9;
     }
     bool useWeightedMean = true;  // change to "true" if you need weighting.
-    batchSearch(cpuOutput, positionData, sampleDim, k, useWeightedMean, meanPositions);
+    batchSearch(cpuOutput, positionData, sampleDim, k, useWeightedMean, meanPositions);         // CPU and put in meanPosition - Have to change positionData to only have landmarks
 
     cpuOutput.clear();  // Free memory immediately.
     qDebug() << "Approximate lower dimensional positions estimated" << _fullDataModeBatch;
 
     // Composite this batch’s result over the previous composite and update the texture.
-    renderBatchToScreen( _fullDataModeBatch, sampleDim, meanPositions);
+    renderBatchToScreen( _fullDataModeBatch, sampleDim, meanPositions);                         // GPU render to screen texture
     qDebug() << "Rendered batch" << _fullDataModeBatch << "to composite texture.";
     if (_fullDataModeBatch == _GPUBatches.size() - 1) {
         _fullDataModeBatch = -1;
@@ -1906,6 +2177,10 @@ void VolumeRenderer::setDefaultRenderSettings()
     glDisable(GL_BLEND);
 }
 
+void VolumeRenderer::setHSNELandmarkIndices(const std::vector<unsigned int>& indices)
+{
+    _landmarkIndices = indices;
+}
 
 void VolumeRenderer::render()
 {
@@ -1936,6 +2211,10 @@ void VolumeRenderer::render()
             renderCompositeColor();
         else if (_renderMode == RenderMode::MIP)
             render1DMip();
+        else if (_renderMode == RenderMode::HSNE_COMPOSITE_FULL_v1)
+            renderFullDataHSNE();
+        else if (_renderMode == RenderMode::HSNE_COMPOSITE_2D_POS)
+            renderHSNEComposite2DPos();
         else {
             qCritical() << "Missing data for rendering";
         }

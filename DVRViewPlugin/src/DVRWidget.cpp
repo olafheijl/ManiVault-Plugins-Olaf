@@ -74,6 +74,11 @@ DVRWidget::~DVRWidget()
     cleanup();
 }
 
+void DVRWidget::setHSNELandmarkIndices(const std::vector<unsigned int>& indices)
+{
+    _volumeRenderer.setHSNELandmarkIndices(indices);
+}
+
 void DVRWidget::setData(const Dataset<Volumes>& dataset, std::vector<std::uint32_t>& dimensionIndices)
 {
     _volumeDataset = dataset;
