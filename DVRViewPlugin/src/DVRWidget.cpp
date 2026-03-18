@@ -104,8 +104,22 @@ void DVRWidget::setTfTexture(const Dataset<Images>& tfTexture)
 void DVRWidget::setReducedPosData(const Dataset<Points>& reducedPosData)
 {
     _volumeRenderer.setReducedPosData(reducedPosData);
+    auto ptr = reducedPosData->getDataHierarchyItem()
+        .property("hsneHierarchy")
+        .value<void*>();
+
+    const std::vector<LandmarkMap>* influenceMapPointer = static_cast<const std::vector<LandmarkMap>*>(ptr);
+    setHSNEInfluenceMap(influenceMapPointer);
     update();
 }
+
+void DVRWidget::setHSNEInfluenceMap(const std::vector<LandmarkMap>* influenceMapPointer)
+{
+    _volumeRenderer.setHSNEInfluenceMap(influenceMapPointer);
+    update();
+}
+
+
 
 void DVRWidget::setMaterialTransitionTexture(const Dataset<Images>& materialTransitionTexture)
 {

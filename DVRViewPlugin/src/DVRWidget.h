@@ -20,6 +20,8 @@ using namespace mv::gui;
 
 class DVRViewPlugin;
 
+using LandmarkMap = std::vector<std::vector<unsigned int>>;
+
 class DVRWidget : public QOpenGLWidget, protected QOpenGLFunctions
 {
     Q_OBJECT
@@ -37,7 +39,8 @@ public:
     void setHSNELandmarkIndices(const std::vector<unsigned int>& indices);
     void setData(const Dataset<Volumes>& dataset, std::vector<std::uint32_t>& dimensionIndices);
     void setTfTexture(const Dataset<Images>& tfTexture);
-    void setReducedPosData(const Dataset<Points>& reducedPosData); 
+    void setReducedPosData(const Dataset<Points>& reducedPosData);
+    void setHSNEInfluenceMap(const std::vector<LandmarkMap>* influenceMapPointer);
     void setMaterialTransitionTexture(const Dataset<Images>& materialTransitionTexture);
     void setMaterialPositionTexture(const Dataset<Images>& materialPositionTexture);
 

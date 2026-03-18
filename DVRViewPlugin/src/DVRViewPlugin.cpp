@@ -321,7 +321,15 @@ void DVRViewPlugin::loadReducedPosData(const mv::Dataset<Points>& dataset)
 
         //qDebug() << "Number of HSNE landmarks: " << landmarkIndices.size();
 
+        QVariant hierarchyData = dataset->getDataHierarchyItem().property("hsneHierarchy");
+
+        if (hierarchyData.isValid())
+        {
+            _influenceMapPointer = reinterpret_cast<std::vector<LandmarkMap>*>(hierarchyData.value<void*>());
+        }
+
         _DVRWidget->setHSNELandmarkIndices(landmarkIndices);
+        _DVRWidget->setHSNEInfluenceMap(_influenceMapPointer);
     }
 
     updateShowDropIndicator();

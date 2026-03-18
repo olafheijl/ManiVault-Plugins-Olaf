@@ -436,7 +436,7 @@ void VolumeRenderer::updataDataTexture()
             _volumeTexture.setData(_volumeTextureSize.x, _volumeTextureSize.y, _volumeTextureSize.z, _textureData, 4);
             _volumeTexture.release(); // Unbind the texture
         }
-        else if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS || _renderMode == RenderMode::MaterialTransition_2D || _renderMode == RenderMode::HSNE_COMPOSITE_2D_POS) {
+        else if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS || _renderMode == RenderMode::MaterialTransition_2D) {
             if (!_tfDataset.isValid() || !_reducedPosDataset.isValid()) { // _tfTexture is used in the normalize function
                 qCritical() << "No position data set";
                 return;
@@ -446,6 +446,21 @@ void VolumeRenderer::updataDataTexture()
 
             _reducedPosDataset->populateDataForDimensions(_textureData, std::vector<int>{0, 1});
             normalizePositionData(_textureData);
+
+            // Generate and bind a 3D texture
+            _volumeTexture.bind();
+            _volumeTexture.setData(_volumeTextureSize.x, _volumeTextureSize.y, _volumeTextureSize.z, _textureData, 2);
+            _volumeTexture.release(); // Unbind the texture
+        }
+        else if (_renderMode == RenderMode::HSNE_COMPOSITE_2D_POS) {
+            if (!_tfDataset.isValid() || !_reducedPosDataset.isValid()) { // _tfTexture is used in the normalize function
+                qCritical() << "No position data set";
+                return;
+            }
+            _textureData = std::vector<float>(_volumeDataset->getNumberOfVoxels() * 2);
+            _volumeTextureSize = _volumeSize;
+
+            _textureData = createVoxelToLandmark();
 
             // Generate and bind a 3D texture
             _volumeTexture.bind();
@@ -575,7 +590,7 @@ void VolumeRenderer::setRenderMode(const QString& renderMode)
             return 1;
         if (mode == RenderMode::MaterialTransition_2D)
             return 2;
-        if (mode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS)
+        if (mode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS || mode == RenderMode::HSNE_COMPOSITE_2D_POS)
             return 3;
         if (mode == RenderMode::NN_MaterialTransition || mode == RenderMode::Alt_NN_MaterialTransition || mode == RenderMode::Smooth_NN_MaterialTransition)
             return 4;
@@ -1640,6 +1655,98 @@ QVector2D VolumeRenderer::ComputeMeanOfNN(const std::vector<std::pair<float, int
     return meanPos;
 }
 
+void VolumeRenderer::setHSNELandmarkIndices(const std::vector<unsigned int>& indices)
+{
+    _landmarkIndices = indices;
+}
+
+void VolumeRenderer::setHSNEInfluenceMap(const std::vector<LandmarkMap>* influenceMapPointer)
+{
+    _influenceMapPointer = influenceMapPointer;
+}
+
+std::vector<float> VolumeRenderer::createVoxelToLandmark()
+{
+    int numLandmarks = _landmarkIndices.size();
+    uint32_t numVoxels = _volumeDataset->getNumberOfVoxels();
+    std::vector<float> voxelToLandmark(numVoxels * 2);
+
+    if (!_influenceMapPointer)
+        return voxelToLandmark;
+
+    qDebug() << "Starting creating voxelToLandmark set";
+    const auto& influenceMap = *_influenceMapPointer;
+
+    std::vector<float> voxelToLandmarkPositionData(numVoxels * 2); // 2 for each landmark
+
+    // find HSNE scale
+    int scaleIndex = -1;
+    qDebug() << "first debug";
+    qDebug() << influenceMap.size();
+
+    for (int s = 0; s < (int)influenceMap.size(); ++s)
+    {
+        if (influenceMap[s].size() == numLandmarks)
+        {
+            scaleIndex = s;
+            break;
+        }
+    }
+
+    if (scaleIndex < 0)
+    {
+        // Could not match scale
+        qDebug() << "Cannot find correct scale";
+        return voxelToLandmark;
+    }
+
+    qDebug() << "second debug";
+    const LandmarkMap& levelMap = influenceMap[scaleIndex];
+
+    // Prepare output 
+    std::vector<float> voxelX(numVoxels, 0.0f);
+    std::vector<float> voxelY(numVoxels, 0.0f);
+    std::vector<float> voxelW(numVoxels, 0.0f);
+
+    // Accumulate contributions 
+    for (size_t lm = 0; lm < levelMap.size(); ++lm)
+    {
+        float lx = voxelToLandmarkPositionData[lm * 2 + 0];
+        float ly = voxelToLandmarkPositionData[lm * 2 + 1];
+
+        const auto& voxels = levelMap[lm];
+
+        for (unsigned int v : voxels)
+        {
+            if (v >= numVoxels)
+                continue;
+
+            float w = 1.0f; // no weights available in LandmarkMap, they are only in HSNE functions
+
+            voxelX[v] += w * lx;
+            voxelY[v] += w * ly;
+            voxelW[v] += w;
+        }
+    }
+    qDebug() << "third debug";
+
+    // Normalize 
+
+    for (size_t v = 0; v < numVoxels; ++v)
+    {
+        if (voxelW[v] > 0.0f)
+        {
+            voxelX[v] /= voxelW[v];
+            voxelY[v] /= voxelW[v];
+        }
+
+        voxelToLandmark[v * 2 + 0] = voxelX[v];
+        voxelToLandmark[v * 2 + 1] = voxelY[v];
+    }
+
+    qDebug() << "finished creating voxelToLandmark set";
+    return voxelToLandmark;
+}
 
 
 void VolumeRenderer::updateRenderModeParameters()
@@ -1678,11 +1785,6 @@ void VolumeRenderer::updateRenderModeParameters()
         loadNNVolumeToTexture(_tempNNMaterialVolume, _textureData, _materialPositionImage, _materialPositionDataset->getImageSize().width(), _volumeSize, _volumeDataset->getNumberOfVoxels(), true);
     }
 
-}
-
-void VolumeRenderer::renderHSNEComposite2DPos()
-{
-    // TODO
 }
 
 void VolumeRenderer::renderFullDataHSNE()
@@ -1816,6 +1918,61 @@ void VolumeRenderer::renderFullData()
     else {
         _fullDataModeBatch++;
     }
+}
+
+void VolumeRenderer::renderHSNEComposite2DPos()
+{
+    setDefaultRenderSettings();
+
+    // Bind the framebuffer and attach the adapted screen size texture
+    _framebuffer.bind();
+    _framebuffer.setTexture(GL_COLOR_ATTACHMENT0, _adaptedScreenSizeTexture);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Set up and bind the 2D composite shader
+    _2DCompositeShader.bind();
+    _backfacesTexture.bind(0);
+    _2DCompositeShader.uniform1i("backFaces", 0);
+
+    _frontfacesTexture.bind(1);
+    _2DCompositeShader.uniform1i("frontFaces", 1);
+
+    _volumeTexture.bind(2);
+    _2DCompositeShader.uniform1i("volumeData", 2);
+
+    _tfTexture.bind(3);
+    _2DCompositeShader.uniform1i("tfTexture", 3);
+
+    _2DCompositeShader.uniform1f("stepSize", _stepSize);
+
+    mv::Vector3f volumeSize;
+    mv::Vector3f invVolumeSize;
+    if (_useCustomRenderSpace) {
+        volumeSize = _renderSpace;
+        invVolumeSize = mv::Vector3f(1.0f / _renderSpace.x, 1.0f / _renderSpace.y, 1.0f / _renderSpace.z);
+    }
+    else {
+        volumeSize = _volumeSize;
+        invVolumeSize = mv::Vector3f(1.0f / _volumeSize.x, 1.0f / _volumeSize.y, 1.0f / _volumeSize.z);
+    }
+
+    _2DCompositeShader.uniform3fv("dimensions", 1, &volumeSize);
+    _2DCompositeShader.uniform3fv("invDimensions", 1, &invVolumeSize);
+    _2DCompositeShader.uniform2f("invFaceTexSize", 1.0f / _adjustedScreenSize.width(), 1.0f / _adjustedScreenSize.height());
+    _2DCompositeShader.uniform2f("invTfTexSize", 1.0f / _tfDataset->getImageSize().width(), 1.0f / _tfDataset->getImageSize().height());
+
+    drawDVRQuad(_2DCompositeShader);
+
+    _framebuffer.release();
+
+    // Now render the adapted screen size texture to the default framebuffer (the screen)
+    glBindFramebuffer(GL_FRAMEBUFFER, _defaultFramebuffer);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    renderTexture(_adaptedScreenSizeTexture);
+
+    // Restore depth clear value
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glDepthFunc(GL_LEQUAL);
 }
 
 void VolumeRenderer::renderComposite2DPos()
@@ -2175,11 +2332,6 @@ void VolumeRenderer::setDefaultRenderSettings()
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_BLEND);
-}
-
-void VolumeRenderer::setHSNELandmarkIndices(const std::vector<unsigned int>& indices)
-{
-    _landmarkIndices = indices;
 }
 
 void VolumeRenderer::render()
