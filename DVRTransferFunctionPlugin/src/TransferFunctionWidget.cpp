@@ -289,13 +289,18 @@ void TransferFunctionWidget::setData(const std::vector<Vector2f>* points)
     auto dataBounds = getDataBounds(*points);
 
     const auto dataBoundsRect = QRectF(QPointF(dataBounds.getLeft(), dataBounds.getBottom()), QSizeF(dataBounds.getWidth(), dataBounds.getHeight()));
-
     // pass un-adjusted data bounds to renderer for 2D colormapping
+    
     _pointRenderer.setDataBounds(dataBoundsRect);
     
     _dataRectangleAction.setBounds(dataBounds);
-    _pointRenderer.setData(*points);
+    int w = width();
+    int h = height();
+    int size = w < h ? w : h;
+    _boundsPointsWindow = QRect((w - size) / 2.0f, (h - size) / 2.0f, size, size);
 
+    _pointRenderer.setData(*points);
+    _pointRenderer.getNavigator().setZoomMarginData(0.0f);
     update();
 }
 
@@ -482,8 +487,8 @@ void TransferFunctionWidget::paintGL()
                 glEnable(GL_DEPTH_TEST);
 
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-               
-            _pointRenderer.render();
+
+            _pointRenderer.render();  
         }
         painter.endNativePainting();
 
@@ -491,7 +496,7 @@ void TransferFunctionWidget::paintGL()
 
 
 		// Draw the existing shapes
-        QImage materialMap = QImage(size(), QImage::Format_ARGB32);
+        QImage materialMap = QImage(size(), QImage::Format_RGBA8888);
         materialMap.fill(Qt::transparent);
         QPainter shapePainter(&materialMap);
         shapePainter.setCompositionMode(QPainter::CompositionMode_SourceOver);
@@ -541,7 +546,7 @@ void TransferFunctionWidget::updateTfTexture()
 		return;
 
 
-    QImage materialMap = QImage(_boundsPointsWindow.width(), _boundsPointsWindow.height(), QImage::Format_ARGB32);
+    QImage materialMap = QImage(_boundsPointsWindow.width(), _boundsPointsWindow.height(), QImage::Format_RGBA8888);
     materialMap.fill(Qt::transparent);
     QPainter painter(&materialMap);
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
@@ -579,7 +584,7 @@ void TransferFunctionWidget::updateMaterialPositionsTexture()
         return;
 
 
-    QImage materialMap = QImage(_boundsPointsWindow.width(), _boundsPointsWindow.height(), QImage::Format_ARGB32);
+    QImage materialMap = QImage(_boundsPointsWindow.width(), _boundsPointsWindow.height(), QImage::Format_RGBA8888);
     materialMap.fill(Qt::transparent);
     QPainter painter(&materialMap);
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);

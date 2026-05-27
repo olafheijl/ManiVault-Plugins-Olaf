@@ -34,6 +34,7 @@ bld/
 [Ll]og/
 [Ll]ogs/
 build
+CMakeSettings.json
 
 # Build results on 'Bin' directories
 **/[Bb]in/*

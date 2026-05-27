@@ -7,10 +7,13 @@ uniform sampler3D volumeData;
 
 uniform sampler2D tfTexture;
 
+uniform vec2 tfMin;
+uniform vec2 tfMax;
+
 uniform vec3 dimensions;
-uniform vec3 invDimensions; // Pre-divided dimensions (1.0 / dimensions)
+uniform vec3 invDimensions; // Pre-divided dimensions (1.0 / dimensions) 
 uniform vec2 invFaceTexSize; // Pre-divided FaceTexSize (1.0 / FaceTexSize)
-uniform vec2 invTfTexSize;  // Pre-divided tfTexSize (1.0 / tfTexSize)
+uniform vec2 invTfTexSize;  // Pre-divided tfTexSize (1.0 / tfTexSize) 1 / 512
 
 uniform float stepSize;
 

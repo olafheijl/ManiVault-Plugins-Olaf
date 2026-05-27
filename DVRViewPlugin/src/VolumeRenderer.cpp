@@ -264,7 +264,7 @@ void VolumeRenderer::setData(const mv::Dataset<Volumes>& dataset)
 void VolumeRenderer::setTfTexture(const mv::Dataset<Images>& tfTexture) 
 {
     _tfDataset = tfTexture;
-    QSize textureDims = _tfDataset->getImageSize();
+    QSize textureDims = _tfDataset->getImageSize(); // 512 x 512
     int dataSize = textureDims.width() * textureDims.height() * 4;
     _tfImage = QVector<float>(dataSize);
     QPair<float, float> scalarDataRange;
@@ -273,7 +273,7 @@ void VolumeRenderer::setTfTexture(const mv::Dataset<Images>& tfTexture)
     _scalarImageDataRange = scalarDataRange;
 
     _tfTexture.bind();
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, textureDims.width(), textureDims.height() - 1, 0, GL_RGBA, GL_FLOAT, _tfImage.data());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, textureDims.width(), textureDims.height(), 0, GL_RGBA, GL_FLOAT, _tfImage.data());
     _tfTexture.release();
 
     // In these rendermodes the new dataset will impact the visualization and thus needs to be updated now 
@@ -284,7 +284,7 @@ void VolumeRenderer::setTfTexture(const mv::Dataset<Images>& tfTexture)
 void VolumeRenderer::setReducedPosData(const mv::Dataset<Points>& reducedPosData)
 {
     _reducedPosDataset = reducedPosData;
-    if (!_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL && !_renderMode == RenderMode::MaterialTransition_FULL && _renderMode != RenderMode::MIP && _renderMode != RenderMode::HSNE_COMPOSITE_FULL_v1) {
+    if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL || _renderMode == RenderMode::MaterialTransition_FULL || _renderMode == RenderMode::MIP || _renderMode == RenderMode::HSNE_COMPOSITE_FULL_v1 || _renderMode == RenderMode::HSNE_COMPOSITE_2D_POS) {
         updataDataTexture(); // The position data is used in the rendering process, so we need to update the data texture (apart from the MIP and full data render modes that either don't need it or define it elsewhere)
     }
 }
@@ -453,14 +453,16 @@ void VolumeRenderer::updataDataTexture()
             _volumeTexture.release(); // Unbind the texture
         }
         else if (_renderMode == RenderMode::HSNE_COMPOSITE_2D_POS) {
-            if (!_tfDataset.isValid() || !_reducedPosDataset.isValid()) { // _tfTexture is used in the normalize function
+            if (!_tfDataset.isValid() || !_landmarkDataset.isValid()) { // _tfTexture is used in the normalize function
                 qCritical() << "No position data set";
                 return;
             }
+
             _textureData = std::vector<float>(_volumeDataset->getNumberOfVoxels() * 2);
             _volumeTextureSize = _volumeSize;
 
-            _textureData = createVoxelToLandmark();
+            _landmarkDataset->populateDataForDimensions(_textureData, std::vector<int>{0, 1});
+            normalizePositionData(_textureData);
 
             // Generate and bind a 3D texture
             _volumeTexture.bind();
@@ -590,7 +592,7 @@ void VolumeRenderer::setRenderMode(const QString& renderMode)
             return 1;
         if (mode == RenderMode::MaterialTransition_2D)
             return 2;
-        if (mode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS || mode == RenderMode::HSNE_COMPOSITE_2D_POS)
+        if (mode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_2D_POS)
             return 3;
         if (mode == RenderMode::NN_MaterialTransition || mode == RenderMode::Alt_NN_MaterialTransition || mode == RenderMode::Smooth_NN_MaterialTransition)
             return 4;
@@ -598,6 +600,10 @@ void VolumeRenderer::setRenderMode(const QString& renderMode)
             return 5;
         if (mode == RenderMode::MIP)
             return 6;
+        if (mode == RenderMode::HSNE_COMPOSITE_2D_POS)
+            return 7;
+       // if (mode == RenderMode::HSNE_COMPOSITE_FULL_v1)
+       //     return 8;
         return 0; // Unknown group
         };
 
@@ -607,7 +613,7 @@ void VolumeRenderer::setRenderMode(const QString& renderMode)
     if (getRenderModeGroup(_renderMode) != currentGroup)
         _dataSettingsChanged = true;
 
-    if (currentGroup == 1 || currentGroup == 2 || currentGroup == 3 || currentGroup == 6) {
+    if (currentGroup == 1 || currentGroup == 2 || currentGroup == 3 || currentGroup == 6 || currentGroup == 7) {
         // For these groups we need to ensure that the volume texture is bound and has the correct settings
         _volumeTexture.bind();
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -767,35 +773,30 @@ void VolumeRenderer::prepareANNHSNE()
         return;
     }
 
-    qDebug() << "Starting loading ANN HSNE";
     auto start = std::chrono::high_resolution_clock::now();
 
     // Load full voxel data
     uint32_t numVoxels = _volumeDataset->getNumberOfVoxels();
+    uint32_t numLandmarks = static_cast<uint32_t>(_landmarkIndices.size());
     uint32_t dimensions = _volumeDataset->getComponentsPerVoxel();
 
     std::vector<float> voxelData(dimensions * numVoxels);
     QPair<float, float> scalarDataRange;
     _volumeDataset->getVolumeData(_compositeIndices, voxelData, scalarDataRange);
 
-    uint32_t numLandmarks = static_cast<uint32_t>(_landmarkIndices.size());
-
-    qDebug() << "Total voxels:" << numVoxels;
-    qDebug() << "HSNE landmarks:" << numLandmarks;
-    qDebug() << "Feature dimensions:" << dimensions;
-
     // Extract landmark feature vectors
     std::vector<float> landmarkData(numLandmarks * dimensions);
     _annIndexToVoxelIndex.resize(numLandmarks);
 
     for (uint32_t i = 0; i < numLandmarks; i++) {
-        uint32_t voxelIdx = _landmarkIndices[i];
+        uint32_t landmarkIdx = _landmarkIndices[i];
+        _annIndexToVoxelIndex[i] = landmarkIdx;
 
-        const float* src = voxelData.data() + voxelIdx * dimensions;
-        float* dst = landmarkData.data() + i * dimensions;
-        std::memcpy(dst, src, sizeof(float) * dimensions);
-
-        _annIndexToVoxelIndex[i] = voxelIdx;
+        std::memcpy(
+            landmarkData.data() + i * dimensions,
+            voxelData.data() + landmarkIdx * dimensions,
+            dimensions * sizeof(float)
+        );
     }
 
 #ifdef USE_FAISS
@@ -816,8 +817,6 @@ void VolumeRenderer::prepareANNHSNE()
 #endif  
     {
         // Build a filename referencing key parameters
-        qDebug() << "Building HNSW HSNE index";
-
         std::ostringstream oss;
         oss << _hnswIndexFolder << "hnsw_hsne_index"
             << "_M" << _hnswM
@@ -859,7 +858,6 @@ void VolumeRenderer::prepareANNHSNE()
         }
     }
 
-    qDebug() << "HSNW HSNE ANN ready";
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -874,7 +872,7 @@ void VolumeRenderer::prepareANN()
         return;
     }
 
-    qDebug() << "Starting loading ANN";
+    //qDebug() << "Starting loading ANN";
     auto start = std::chrono::high_resolution_clock::now();
 
     uint32_t numVoxels = _volumeDataset->getNumberOfVoxels();
@@ -1461,7 +1459,7 @@ void VolumeRenderer::renderBatchToScreen(int batchIndex, uint32_t sampleDim, std
     glClear(GL_DEPTH_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
 
-    if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL) {
+    if (_renderMode == RenderMode::MULTIDIMENSIONAL_COMPOSITE_FULL || _renderMode == RenderMode::HSNE_COMPOSITE_FULL_v1) {
         // --- Set up and bind the composite shader ---
         _fullDataCompositeShader.bind();
 
@@ -1502,6 +1500,7 @@ void VolumeRenderer::renderBatchToScreen(int batchIndex, uint32_t sampleDim, std
         _backfacesTexture.bind(5);
         _fullDataMaterialTransitionShader.uniform1i("backFaces", 5);
 
+
         // Set required uniforms
         _fullDataMaterialTransitionShader.uniform2f("invFaceTexSize", 1.0f / float(width), 1.0f / float(height));
         _fullDataMaterialTransitionShader.uniform2f("invTfTexSize", 1.0f / _materialPositionDataset->getImageSize().width(), 1.0f / _materialPositionDataset->getImageSize().height());
@@ -1521,7 +1520,7 @@ void VolumeRenderer::renderBatchToScreen(int batchIndex, uint32_t sampleDim, std
 
     _framebuffer.release();
 
-    qDebug() << "Composite full data rendered into composite texture.";
+    //qDebug() << "Composite full data rendered into composite texture.";
 
     // Clean up temporary GPU buffers.
     glDeleteBuffers(1, &sampleMappingBuffer);
@@ -1655,96 +1654,70 @@ QVector2D VolumeRenderer::ComputeMeanOfNN(const std::vector<std::pair<float, int
     return meanPos;
 }
 
-void VolumeRenderer::setHSNELandmarkIndices(const std::vector<unsigned int>& indices)
+void VolumeRenderer::setHSNELandmarkIndices(const mv::Dataset<Points>& reducedPosData, std::vector<unsigned int> landmarkIndices, int scaleCounter)
 {
-    _landmarkIndices = indices;
+    _reducedLandmarkPosDataset = reducedPosData;
+    _landmarkIndices = landmarkIndices;
+    _scaleLevel = _hierarchy->getNumScales() - scaleCounter - 1;
+    _voxelToLandmark = createVoxelToLandmark();  // Makes use of _landmarkPositions and _hierarchy
+    _landmarkDataset = mv::data().createDataset("Points", "landmarkDataset");
+    _landmarkDataset->setData(_voxelToLandmark, 2);
+    mv::events().notifyDatasetDataChanged(_landmarkDataset);
+    updataDataTexture();
 }
 
-void VolumeRenderer::setHSNEInfluenceMap(const std::vector<LandmarkMap>* influenceMapPointer)
+void VolumeRenderer::setHsneHierarchy(HsneHierarchy* hierarchy)
 {
-    _influenceMapPointer = influenceMapPointer;
+    _hierarchy = hierarchy;
+    updataDataTexture();
 }
 
 std::vector<float> VolumeRenderer::createVoxelToLandmark()
 {
-    int numLandmarks = _landmarkIndices.size();
-    uint32_t numVoxels = _volumeDataset->getNumberOfVoxels();
+    int numVoxels = _hierarchy->getNumPoints();                  // total data points
+    const int numLandmarks = _landmarkIndices.size();
+    int numScales = _hierarchy->getNumScales();
+
     std::vector<float> voxelToLandmark(numVoxels * 2);
-
-    if (!_influenceMapPointer)
-        return voxelToLandmark;
-
-    qDebug() << "Starting creating voxelToLandmark set";
-    const auto& influenceMap = *_influenceMapPointer;
-
-    std::vector<float> voxelToLandmarkPositionData(numVoxels * 2); // 2 for each landmark
-
-    // find HSNE scale
-    int scaleIndex = -1;
-    qDebug() << "first debug";
-    qDebug() << influenceMap.size();
-
-    for (int s = 0; s < (int)influenceMap.size(); ++s)
-    {
-        if (influenceMap[s].size() == numLandmarks)
-        {
-            scaleIndex = s;
-            break;
-        }
-    }
-
-    if (scaleIndex < 0)
-    {
-        // Could not match scale
-        qDebug() << "Cannot find correct scale";
+    if (_scaleLevel < 0) {
+        qDebug() << "cannot find scale";
         return voxelToLandmark;
     }
 
-    qDebug() << "second debug";
-    const LandmarkMap& levelMap = influenceMap[scaleIndex];
+#pragma omp parallel for
+    for (int i = 0; i < numVoxels; i++) {
+        std::vector<std::unordered_map<unsigned int, float>> influence;
+;
 
-    // Prepare output 
-    std::vector<float> voxelX(numVoxels, 0.0f);
-    std::vector<float> voxelY(numVoxels, 0.0f);
-    std::vector<float> voxelW(numVoxels, 0.0f);
+        // because we need at least an influence of 0.05, all points that don't have that will be in TF in middle
+        _hierarchy->getInfluenceOnDataPoint(i, influence, 0.05, true);
 
-    // Accumulate contributions 
-    for (size_t lm = 0; lm < levelMap.size(); ++lm)
-    {
-        float lx = voxelToLandmarkPositionData[lm * 2 + 0];
-        float ly = voxelToLandmarkPositionData[lm * 2 + 1];
+        const std::unordered_map<uint32_t, float>& scaleInfluence = influence[_scaleLevel];
 
-        const auto& voxels = levelMap[lm];
+        float pointX = 0.0f;
+        float pointY = 0.0f;
 
-        for (unsigned int v : voxels)
-        {
-            if (v >= numVoxels)
-                continue;
+        if (!scaleInfluence.empty()) {
+            unsigned int bestLandmark = 0;
+            float maxWeight = -1.0f;
 
-            float w = 1.0f; // no weights available in LandmarkMap, they are only in HSNE functions
+            for (const std::pair<uint32_t, float>& pair : scaleInfluence) {
+                if (pair.second > maxWeight) {
+                    maxWeight = pair.second;
+                    bestLandmark = pair.first;
+                }
+            }
 
-            voxelX[v] += w * lx;
-            voxelY[v] += w * ly;
-            voxelW[v] += w;
-        }
-    }
-    qDebug() << "third debug";
-
-    // Normalize 
-
-    for (size_t v = 0; v < numVoxels; ++v)
-    {
-        if (voxelW[v] > 0.0f)
-        {
-            voxelX[v] /= voxelW[v];
-            voxelY[v] /= voxelW[v];
+            int dims = _reducedLandmarkPosDataset->getNumDimensions();
+            pointX = _reducedLandmarkPosDataset->getValueAt(bestLandmark * dims);
+            pointY = _reducedLandmarkPosDataset->getValueAt(bestLandmark * dims + 1);
         }
 
-        voxelToLandmark[v * 2 + 0] = voxelX[v];
-        voxelToLandmark[v * 2 + 1] = voxelY[v];
+        voxelToLandmark[2 * i + 0] = pointX;
+        voxelToLandmark[2 * i + 1] = pointY;
+
     }
 
-    qDebug() << "finished creating voxelToLandmark set";
     return voxelToLandmark;
 }
 
@@ -1800,13 +1773,14 @@ void VolumeRenderer::renderFullDataHSNE()
     if (!_ANNHSNEAlgorithmTrained) {
         prepareANNHSNE();                                                          //  CPU - all voxels used here
         _ANNHSNEAlgorithmTrained = true;
-        qDebug() << "ANN algorithm trained for full data mode.";
+        //qDebug() << "ANN algorithm trained for full data mode.";
     }
 
     // Initialize the GPU full data mode parameters if not already done.
     if (_fullDataModeBatch == -1) {
         qDebug() << "Available GPU memory for batch transfer:" << availableMemoryInBytes / (1024 * 1024) << "MB";
         qDebug() << "Rendering composite full data...";
+        start = std::chrono::high_resolution_clock::now();
 
         updateRenderModeParameters();                                          // CPU - Not all voxels used here
         _fullDataModeBatch = 0;
@@ -1819,7 +1793,7 @@ void VolumeRenderer::renderFullDataHSNE()
     // Retrieve the reduced 2D position data (e.g. from a dimension reduction dataset), they are needed for following computation ---
     int numLandmarks = _landmarkIndices.size() * 2; // two floats per voxel.
     std::vector<float> landmarkPositionData(numLandmarks);
-    _reducedPosDataset->populateDataForDimensions(landmarkPositionData, std::vector<int>{0, 1});
+    _reducedLandmarkPosDataset->populateDataForDimensions(landmarkPositionData, std::vector<int>{0, 1});
     normalizePositionData(landmarkPositionData);
 
     // Run approximate nearest-neighbour search on the retrieved CPU data.
@@ -1832,22 +1806,25 @@ void VolumeRenderer::renderFullDataHSNE()
         k = 9;
     }
     bool useWeightedMean = true;  // change to "true" if you need weighting.
-    qDebug() << "start batchsearch HSNE";
+    //qDebug() << "start batchsearch HSNE";
     batchSearchHSNE(cpuOutput, landmarkPositionData, sampleDim, k, useWeightedMean, meanPositions);         // CPU and put in meanPosition - Have to change positionData to only have landmarks
 
-    qDebug() << "finish batchsearch HSNE";
+    //qDebug() << "finish batchsearch HSNE";
     cpuOutput.clear();  // Free memory immediately.
-    qDebug() << "Approximate lower dimensional positions estimated" << _fullDataModeBatch;
-
+    //qDebug() << "Approximate lower dimensional positions estimated" << _fullDataModeBatch;
     // Composite this batch’s result over the previous composite and update the texture.
     renderBatchToScreen(_fullDataModeBatch, sampleDim, meanPositions);                         // GPU render to screen texture
-    qDebug() << "Rendered batch" << _fullDataModeBatch << "to composite texture.";
+    //qDebug() << "Rendered batch" << _fullDataModeBatch << "to composite texture.";
     if (_fullDataModeBatch == _GPUBatches.size() - 1) {
         _fullDataModeBatch = -1;
 
         // clean up the temporary texture used for the material volume.
         _tempNNMaterialVolume.destroy();
-        qDebug() << "Composite full rendering completed.";
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        qDebug() << "full render cost" << duration.count() << " ms";
+        //qDebug() << "Composite full rendering completed.";
     }
     else {
         _fullDataModeBatch++;
@@ -1875,6 +1852,7 @@ void VolumeRenderer::renderFullData()
     if (_fullDataModeBatch == -1) {
         qDebug() << "Available GPU memory for batch transfer:" << availableMemoryInBytes / (1024 * 1024) << "MB";
         qDebug() << "Rendering composite full data...";
+        start = std::chrono::high_resolution_clock::now();
 
         updateRenderModeParameters();                                           // CPU - Not all voxels used here
         _fullDataModeBatch = 0;
@@ -1914,6 +1892,9 @@ void VolumeRenderer::renderFullData()
         // clean up the temporary texture used for the material volume.
         _tempNNMaterialVolume.destroy();
         qDebug() << "Composite full rendering completed.";
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        qDebug() << "full render cost" << duration << "ms";
     }
     else {
         _fullDataModeBatch++;
@@ -1959,7 +1940,7 @@ void VolumeRenderer::renderHSNEComposite2DPos()
     _2DCompositeShader.uniform3fv("dimensions", 1, &volumeSize);
     _2DCompositeShader.uniform3fv("invDimensions", 1, &invVolumeSize);
     _2DCompositeShader.uniform2f("invFaceTexSize", 1.0f / _adjustedScreenSize.width(), 1.0f / _adjustedScreenSize.height());
-    _2DCompositeShader.uniform2f("invTfTexSize", 1.0f / _tfDataset->getImageSize().width(), 1.0f / _tfDataset->getImageSize().height());
+    _2DCompositeShader.uniform2f("invTfTexSize", 1.0f / (_tfDataset->getImageSize().width()), 1.0f / (_tfDataset->getImageSize().height()));
 
     drawDVRQuad(_2DCompositeShader);
 
@@ -2363,9 +2344,9 @@ void VolumeRenderer::render()
             renderCompositeColor();
         else if (_renderMode == RenderMode::MIP)
             render1DMip();
-        else if (_renderMode == RenderMode::HSNE_COMPOSITE_FULL_v1)
+        else if (_renderMode == RenderMode::HSNE_COMPOSITE_FULL_v1 && _landmarkDataset.isValid())
             renderFullDataHSNE();
-        else if (_renderMode == RenderMode::HSNE_COMPOSITE_2D_POS)
+        else if (_renderMode == RenderMode::HSNE_COMPOSITE_2D_POS && _landmarkDataset.isValid())
             renderHSNEComposite2DPos();
         else {
             qCritical() << "Missing data for rendering";

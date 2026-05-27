@@ -1,6 +1,7 @@
 #pragma once
 
 #include <renderers/PointRenderer.h>
+#include "HsneHierarchy.h"
 #include "VolumeRenderer.h"
 #include "TrackballCamera.h"
 #include <graphics/Vector2f.h>
@@ -20,8 +21,6 @@ using namespace mv::gui;
 
 class DVRViewPlugin;
 
-using LandmarkMap = std::vector<std::vector<unsigned int>>;
-
 class DVRWidget : public QOpenGLWidget, protected QOpenGLFunctions
 {
     Q_OBJECT
@@ -36,13 +35,13 @@ public:
     bool isInitialized() const { return _isInitialized;};
 
     /** methods that pass the data to the renderer */
-    void setHSNELandmarkIndices(const std::vector<unsigned int>& indices);
+    void setHSNELandmarkIndices(const Dataset<Points>& reducedPosData, std::vector<unsigned int> landmarkIndices, int scaleLevel);
     void setData(const Dataset<Volumes>& dataset, std::vector<std::uint32_t>& dimensionIndices);
     void setTfTexture(const Dataset<Images>& tfTexture);
     void setReducedPosData(const Dataset<Points>& reducedPosData);
-    void setHSNEInfluenceMap(const std::vector<LandmarkMap>* influenceMapPointer);
+    void setHsneHierarchy(HsneHierarchy* hierarchy);
     void setMaterialTransitionTexture(const Dataset<Images>& materialTransitionTexture);
-    void setMaterialPositionTexture(const Dataset<Images>& materialPositionTexture);
+    void setMaterialPositionTexture(const Dataset<Images>& materialPositionTexture); 
 
     void setClippingPlaneBoundery(float xMin, float xMax, float yMin, float yMax, float zMin, float zMax);
     void setStepSize(float stepSize);

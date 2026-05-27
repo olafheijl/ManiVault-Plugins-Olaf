@@ -74,9 +74,10 @@ DVRWidget::~DVRWidget()
     cleanup();
 }
 
-void DVRWidget::setHSNELandmarkIndices(const std::vector<unsigned int>& indices)
+void DVRWidget::setHSNELandmarkIndices(const Dataset<Points>& reducedPosData, std::vector<unsigned int> landmarkIndices, int scaleLevel)
 {
-    _volumeRenderer.setHSNELandmarkIndices(indices);
+    _volumeRenderer.setHSNELandmarkIndices(reducedPosData, landmarkIndices, scaleLevel);
+    update();
 }
 
 void DVRWidget::setData(const Dataset<Volumes>& dataset, std::vector<std::uint32_t>& dimensionIndices)
@@ -104,18 +105,12 @@ void DVRWidget::setTfTexture(const Dataset<Images>& tfTexture)
 void DVRWidget::setReducedPosData(const Dataset<Points>& reducedPosData)
 {
     _volumeRenderer.setReducedPosData(reducedPosData);
-    auto ptr = reducedPosData->getDataHierarchyItem()
-        .property("hsneHierarchy")
-        .value<void*>();
-
-    const std::vector<LandmarkMap>* influenceMapPointer = static_cast<const std::vector<LandmarkMap>*>(ptr);
-    setHSNEInfluenceMap(influenceMapPointer);
     update();
 }
 
-void DVRWidget::setHSNEInfluenceMap(const std::vector<LandmarkMap>* influenceMapPointer)
+void DVRWidget::setHsneHierarchy(HsneHierarchy* hierarchy)
 {
-    _volumeRenderer.setHSNEInfluenceMap(influenceMapPointer);
+    _volumeRenderer.setHsneHierarchy(hierarchy);
     update();
 }
 

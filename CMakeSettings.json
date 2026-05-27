@@ -17,8 +17,8 @@
       "configurationType": "RelWithDebInfo",
       "buildRoot": "${projectDir}\\out\\build\\${name}",
       "installRoot": "${projectDir}\\out\\install\\${name}",
-      "cmakeCommandArgs": "",
-      "buildCommandArgs": "",
+      "cmakeCommandArgs": "-DCMAKE_TOOLCHAIN_FILE=C:/Users/olafh/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "buildCommandArgs": "-DCMAKE_TOOLCHAIN_FILE=C:/Users/olafh/vcpkg/scripts/buildsystems/vcpkg.cmake",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
       "variables": [
@@ -30,6 +30,26 @@
         {
           "name": "HNSWLIB_DIR",
           "value": "C:/Users/olafh/hnswlib",
+          "type": "PATH"
+        },
+        {
+          "name": "HDILib_DIR",
+          "value": "C:/Users/olafh/Documents/TU Delft/Master Thesis/ManiVault-Plugins-Olaf/HSNE/HDILib/lib/cmake/HDILib",
+          "type": "PATH"
+        },
+        {
+          "name": "flann_ROOT",
+          "value": "C:/Users/olafh/Documents/TU Delft/Master Thesis/ManiVault-Plugins-Olaf/HSNE/flann/lib/cmake/flann",
+          "type": "PATH"
+        },
+        {
+          "name": "flann_DIR",
+          "value": "C:/Users/olafh/Documents/TU Delft/Master Thesis/ManiVault-Plugins-Olaf/HSNE/flann/lib/cmake/flann",
+          "type": "PATH"
+        },
+        {
+          "name": "lz4_ROOT",
+          "value": "C:/Users/olafh/Documents/TU Delft/Master Thesis/ManiVault-Plugins-Olaf/HSNE/lz4/lib/cmake/lz4",
           "type": "PATH"
         }
       ]

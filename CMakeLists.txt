@@ -16,9 +16,10 @@ add_subdirectory(VolumeDataPlugin)
 add_subdirectory(DVRVolumeLoaderPlugin)
 add_subdirectory(DVRViewPlugin)
 add_subdirectory(DVRTransferFunctionPlugin)
-add_subdirectory(SNE-Analyses)
+add_subdirectory(t-SNE-Analysis)
 
-set_target_properties(VolumeDataPlugin DVRVolumeLoaderPlugin DVRViewPlugin DVRTransferFunctionPlugin SNE-Analyses
-    PROPERTIES
+
+set_target_properties(VolumeDataPlugin DVRVolumeLoaderPlugin DVRViewPlugin DVRTransferFunctionPlugin HsneAnalysisPlugin TsneAnalysisPlugin
+    PROPERTIES 
     FOLDER DVRPlugins
 )

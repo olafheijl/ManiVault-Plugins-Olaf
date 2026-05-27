@@ -1,6 +1,7 @@
 #pragma once
 
 #include <renderers/Renderer.h>
+#include "HsneHierarchy.h"
 #include "TrackballCamera.h"
 #include "graphics/Shader.h"
 #include "graphics/Vector3f.h"
@@ -79,8 +80,6 @@ enum RenderMode {
     HSNE_COMPOSITE_2D_POS
 };
 
-using LandmarkMap = std::vector<std::vector<unsigned int>>;
-
 class VolumeRenderer : protected QOpenGLFunctions_4_3_Core
 {
 public:
@@ -97,7 +96,7 @@ public:
     void setRenderSpace(mv::Vector3f size);
     void setUseCustomRenderSpace(bool useCustomRenderSpace);
     void setCompositeIndices(std::vector<std::uint32_t> compositeIndices);
-    void setHSNEInfluenceMap(const std::vector<LandmarkMap>* influenceMapPointer);
+    void setHsneHierarchy(HsneHierarchy* hierarchy);
 
     void setRenderMode(const QString& renderMode);
     void setMIPDimension(int mipDimension);
@@ -118,7 +117,7 @@ public:
 
     void setDefaultRenderSettings();
 
-    void setHSNELandmarkIndices(const std::vector<unsigned int>& indices);
+    void setHSNELandmarkIndices(const mv::Dataset<Points>& reducedPosData, std::vector<unsigned int> landmarkIndices, int scaleLevel);
 
     void render();
     void destroy();
@@ -233,15 +232,20 @@ private:
 
     TrackballCamera _camera;
     mv::Dataset<Volumes> _volumeDataset;
-    mv::Dataset<Volumes> _landmarkVolumeDataset;
     mv::Dataset<Images> _tfDataset;
     mv::Dataset<Points> _reducedPosDataset;
     mv::Dataset<Images> _materialTransitionDataset;
     mv::Dataset<Images> _materialPositionDataset;
 
+    HsneHierarchy* _hierarchy;
+    mv::Dataset<Points> _reducedLandmarkPosDataset;
+    std::vector<float> _textureLandmarkData;    
     std::vector<unsigned int> _landmarkIndices;
     std::vector<unsigned int> _annIndexToVoxelIndex;
-    const std::vector<LandmarkMap>* _influenceMapPointer;
+    mv::Dataset<Points> _landmarkDataset;
+    std::vector<float> _voxelToLandmark;
+    int _scaleLevel;
+    std::chrono::steady_clock::time_point start;
 
     QSize _adjustedScreenSize;
     mv::Vector3f _volumeSize = mv::Vector3f{50, 50, 50};
@@ -252,7 +256,6 @@ private:
     QVector<float> _tfImage;                        // storage for the transfer function data
     QVector<float> _materialPositionImage;          // storage for the material transfer function data
     std::vector<float> _textureData;                // Storage for the volume data, currently used as a temporary storage for the volume data that is loaded into the texture (The fullDataRenderMode will use it for some auxiliary data so it won't reliably actually contain the current value there)
-    std::vector<float> _textureLandmarkData;
     float _stepSize = 0.5f;
     mv::Vector3f _cameraPos;
 

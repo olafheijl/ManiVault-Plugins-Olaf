@@ -140,7 +140,18 @@ endif()
 # Target Include Directories
 # -----------------------------------------------------------------------------
 # Include ManiVault headers, including system data plugins
+set(HDILib_INCLUDE_DIR "" CACHE PATH "Path to your hnswlib installation directory containing HDILib headers")
+set(lz4Lib_INCLUDE_DIR "" CACHE PATH "Path to your hnswlib installation directory containing lz4lib headers")
+message(STATUS "HDILib include dir: ${HDILib_INCLUDE_DIR}")
+
 target_include_directories(${PROJECT_NAME} PRIVATE "${ManiVault_INCLUDE_DIR}")
+target_include_directories(${PROJECT_NAME}
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../t-SNE-Analysis/src/HSNE      
+        ${HDILib_INCLUDE_DIR}/include        
+)
+
 
 # -----------------------------------------------------------------------------
 # Target Properties
@@ -167,6 +178,16 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ManiVault::Core)
 target_link_libraries(${PROJECT_NAME} PRIVATE ManiVault::PointData)
 target_link_libraries(${PROJECT_NAME} PRIVATE ManiVault::ImageData)
 target_link_libraries(${PROJECT_NAME} PRIVATE VolumeDataPlugin)
+
+target_link_libraries(${PROJECT_NAME}
+    PRIVATE
+        HsneAnalysisPlugin  # if that defines HsneHierarchy.h
+        ${HDILib_INCLUDE_DIR}/lib/Release/hdiutils.lib
+        ${HDILib_INCLUDE_DIR}/lib/Release/hdidata.lib
+        ${HDILib_INCLUDE_DIR}/lib/Release/hdidimensionalityreduction.lib
+        ${lz4Lib_INCLUDE_DIR}/lib/Release/lz4.lib
+        ${lz4Lib_INCLUDE_DIR}/lib/Release/lz4_static.lib
+)
 
 # --- Link OpenMP ---
 if(OpenMP_CXX_FOUND)

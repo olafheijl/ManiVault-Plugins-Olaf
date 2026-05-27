@@ -69,6 +69,6 @@ private:
     friend class mv::AbstractActionsManager;
 };
 
-Q_DECLARE_METATYPE(PointAction)
+Q_DECLARE_METATYPE(PointAction*)
 
 inline const auto pointPlotActionMetaTypeId = qRegisterMetaType<PointAction*>("PointAction");

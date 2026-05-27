@@ -267,8 +267,39 @@ void DVRViewPlugin::updateTfData()
 
 void DVRViewPlugin::updateReducedPosData()
 {
+    qDebug() << "called update reduced";
     if (_reducedPosDataset.isValid()) {
         _DVRWidget->setReducedPosData(_reducedPosDataset);
+        _hierarchy = nullptr;
+
+        // Check if the reducedPosDataset is a HSNE Dimensionality Reduction
+        mv::Dataset<Points> datasetHelper = _reducedPosDataset;
+        mv::Dataset<Points> datasetHelper2 = _reducedPosDataset;
+        int scaleCounter = -1;
+        while (datasetHelper->getParent() != mv::Dataset<Points> {}) {
+            datasetHelper2 = datasetHelper;
+            datasetHelper = datasetHelper->getParent();
+            scaleCounter++;
+        }
+
+        bool isHsne = datasetHelper2->getDataHierarchyItem().property("isHsneLevel").toBool();
+        if (isHsne)
+        {
+            QVariant hierarchyData = datasetHelper2->getDataHierarchyItem().property("hsneHierarchy");
+            if (hierarchyData.isValid())
+            {
+                qDebug() << "Updating hierarchy and scale";
+                void* rawPtr = hierarchyData.value<void*>();
+                _hierarchy = reinterpret_cast<HsneHierarchy*>(rawPtr);
+                _DVRWidget->setHsneHierarchy(_hierarchy);
+
+                std::vector<unsigned int> landmarkIndices;
+                _reducedPosDataset->getGlobalIndices(landmarkIndices);
+                _DVRWidget->setHSNELandmarkIndices(_reducedPosDataset, landmarkIndices, scaleCounter);
+            }
+        }
+        
+
     }
     else {
         qDebug() << "DVRViewPlugin::updateReducedPosData: No data to update";
@@ -295,7 +326,6 @@ void DVRViewPlugin::updateMaterialPositionsData()
     }
 }
 
-
 void DVRViewPlugin::loadData(const mv::Dataset<Points>& dataset)
 {
     _volumeDataset = dataset;
@@ -313,25 +343,6 @@ void DVRViewPlugin::loadTfData(const mv::Dataset<Images>& dataset)
 void DVRViewPlugin::loadReducedPosData(const mv::Dataset<Points>& dataset)
 {
     _reducedPosDataset = dataset;
-
-    if (_reducedPosDataset.isValid())
-    {
-        std::vector<unsigned int> landmarkIndices;
-        _reducedPosDataset->getGlobalIndices(landmarkIndices);
-
-        //qDebug() << "Number of HSNE landmarks: " << landmarkIndices.size();
-
-        QVariant hierarchyData = dataset->getDataHierarchyItem().property("hsneHierarchy");
-
-        if (hierarchyData.isValid())
-        {
-            _influenceMapPointer = reinterpret_cast<std::vector<LandmarkMap>*>(hierarchyData.value<void*>());
-        }
-
-        _DVRWidget->setHSNELandmarkIndices(landmarkIndices);
-        _DVRWidget->setHSNEInfluenceMap(_influenceMapPointer);
-    }
-
     updateShowDropIndicator();
     updateReducedPosData();
 }

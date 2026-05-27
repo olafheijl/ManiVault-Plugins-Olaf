@@ -1,5 +1,6 @@
 #pragma once
 
+#include <HsneHierarchy.h>
 #include <ViewPlugin.h>
 #include <Dataset.h>
 #include <widgets/DropWidget.h>
@@ -23,8 +24,6 @@ using namespace mv::gui;
 
 /** Dataset reference used in this plugin is located in the ManiVault util namespace */
 using namespace mv::util;
-
-using LandmarkMap = std::vector<std::vector<unsigned int>>;
 
 class DVRWidget;
 
@@ -90,7 +89,7 @@ protected:
     std::vector<unsigned int>   _currentDimensions;         /** Stores which dimensions of the current data are shown */
     std::vector<float>          _spatialData;               /** Spatial data */
     std::vector<float>          _valueData;                 /** Value data */
-    std::vector<LandmarkMap>*   _influenceMapPointer;              /** HSNE Hierachy Influence*/
+    HsneHierarchy*        _hierarchy;          /** HSNE Hierachy */
 };
 
 /**
