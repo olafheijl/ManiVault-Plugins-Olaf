@@ -31,7 +31,7 @@ Use the main branch. The other branch is used for experiments in the thesis.
 - Then clone this repository.
 
 # Code Overview
-├── DVRTransferFunctionPlugin/     # Transfer function editor for embedding space 
-├── DVRViewPlugin/                 # Direct volume rendering view plugin 
-├── DVRVolumeLoaderPlugin/         # Volume data loading functionality 
-├── VolumeDataPlugin/              # Volume data representation used by the plugins
+- DVRTransferFunctionPlugin/     # Transfer function editor for embedding space 
+- DVRViewPlugin/                 # Direct volume rendering view plugin 
+- DVRVolumeLoaderPlugin/         # Volume data loading functionality 
+- VolumeDataPlugin/              # Volume data representation used by the plugins
